@@ -105,12 +105,16 @@ def booking_dict_to_response(booking: dict) -> BookingResponse:
 
 def check_date_availability(check_in: date, check_out: date) -> bool:
     """Check if dates are available for booking"""
+    # Convert dates to strings for MongoDB query
+    check_in_str = check_in.isoformat()
+    check_out_str = check_out.isoformat()
+    
     existing_bookings = db.bookings.find({
         'status': {'$ne': 'cancelled'},
         '$or': [
             {
-                'check_in': {'$lt': check_out},
-                'check_out': {'$gt': check_in}
+                'check_in': {'$lt': check_out_str},
+                'check_out': {'$gt': check_in_str}
             }
         ]
     })
