@@ -5,7 +5,7 @@ from datetime import datetime, date, timedelta
 from typing import Dict, Any
 
 class ApartmentBookingAPITester:
-    def __init__(self, base_url="https://14c9d617-f9ed-4416-9528-c716ba728f62.preview.emergentagent.com"):
+    def __init__(self, base_url="https://16606a58-6aec-4f49-9b4b-f7e04f0ceb1e.preview.emergentagent.com"):
         self.base_url = base_url
         self.tests_run = 0
         self.tests_passed = 0
