@@ -9,21 +9,39 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Textarea } from './components/ui/textarea';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './components/ui/dialog';
 import { Badge } from './components/ui/badge';
-import { CalendarDays, MapPin, Users, Clock, Star, Wifi, Car, Coffee, Tv } from 'lucide-react';
+import { CalendarDays, MapPin, Users, Clock, Star, Wifi, Car, Coffee, Tv, PawPrint, Euro } from 'lucide-react';
+import { Checkbox } from './components/ui/checkbox';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
 function App() {
   const [selectedDates, setSelectedDates] = useState({ from: null, to: null });
   const [bookingData, setBookingData] = useState({
-    name: '',
+    firstName: '',
+    lastName: '',
     email: '',
     phone: '',
+    address: '',
     guests: '',
+    petsAllowed: false,
     arrivalTime: '',
     specialRequests: ''
   });
-  const [pricing, setPricing] = useState({ base_rate: 120, baseRate: 120 });
+  const [pricingBreakdown, setPricingBreakdown] = useState({
+    nights: 0,
+    avgNightlyRate: 140,
+    subtotal: 0,
+    cleaningFee: 45,
+    securityDeposit: 600,
+    totalPrice: 645
+  });
+  const [pricingConfig, setPricingConfig] = useState({
+    cleaning_fee: 45,
+    security_deposit: 600,
+    default_rate: 140,
+    min_rate: 140,
+    max_rate: 280
+  });
   const [isBookingOpen, setIsBookingOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [bookings, setBookings] = useState([]);
@@ -39,7 +57,8 @@ function App() {
     { icon: Wifi, name: 'WiFi gratuit' },
     { icon: Car, name: 'Parking' },
     { icon: Coffee, name: 'Cuisine équipée' },
-    { icon: Tv, name: 'TV écran plat' }
+    { icon: Tv, name: 'TV écran plat' },
+    { icon: PawPrint, name: 'Animaux acceptés' }
   ];
 
   const arrivalTimeSlots = [
@@ -51,8 +70,14 @@ function App() {
 
   useEffect(() => {
     fetchBookings();
-    fetchPricing();
+    fetchPricingConfig();
   }, []);
+
+  useEffect(() => {
+    if (selectedDates.from && selectedDates.to) {
+      fetchPricingForDates();
+    }
+  }, [selectedDates]);
 
   const fetchBookings = async () => {
     try {
@@ -66,15 +91,44 @@ function App() {
     }
   };
 
-  const fetchPricing = async () => {
+  const fetchPricingConfig = async () => {
     try {
-      const response = await fetch(`${BACKEND_URL}/api/pricing`);
+      const response = await fetch(`${BACKEND_URL}/api/pricing/configuration`);
       if (response.ok) {
         const data = await response.json();
-        setPricing(data);
+        setPricingConfig(data);
+        setPricingBreakdown(prev => ({
+          ...prev,
+          cleaningFee: data.cleaning_fee,
+          securityDeposit: data.security_deposit
+        }));
       }
     } catch (error) {
-      console.error('Error fetching pricing:', error);
+      console.error('Error fetching pricing config:', error);
+    }
+  };
+
+  const fetchPricingForDates = async () => {
+    if (!selectedDates.from || !selectedDates.to) return;
+    
+    try {
+      const checkIn = selectedDates.from.toISOString().split('T')[0];
+      const checkOut = selectedDates.to.toISOString().split('T')[0];
+      
+      const response = await fetch(`${BACKEND_URL}/api/pricing/dates/${checkIn}/${checkOut}`);
+      if (response.ok) {
+        const data = await response.json();
+        setPricingBreakdown({
+          nights: data.nights,
+          avgNightlyRate: data.avg_nightly_rate,
+          subtotal: data.subtotal,
+          cleaningFee: data.cleaning_fee,
+          securityDeposit: data.security_deposit,
+          totalPrice: data.total_price
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching pricing for dates:', error);
     }
   };
 
@@ -94,24 +148,29 @@ function App() {
     return 0;
   };
 
-  const calculateTotal = () => {
-    const nights = calculateNights();
-    const baseRate = pricing.base_rate || pricing.baseRate || 120;
-    return nights * baseRate;
-  };
-
   const handleBookingSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
 
     try {
       const bookingPayload = {
-        ...bookingData,
+        first_name: bookingData.firstName,
+        last_name: bookingData.lastName,
+        email: bookingData.email,
+        phone: bookingData.phone,
+        address: bookingData.address,
+        guests: parseInt(bookingData.guests),
+        pets_allowed: bookingData.petsAllowed,
         check_in: selectedDates.from?.toISOString().split('T')[0],
         check_out: selectedDates.to?.toISOString().split('T')[0],
-        nights: calculateNights(),
-        total_price: calculateTotal(),
-        guests: parseInt(bookingData.guests)
+        nights: pricingBreakdown.nights,
+        nightly_rate: pricingBreakdown.avgNightlyRate,
+        subtotal: pricingBreakdown.subtotal,
+        cleaning_fee: pricingBreakdown.cleaningFee,
+        security_deposit: pricingBreakdown.securityDeposit,
+        total_price: pricingBreakdown.totalPrice,
+        arrival_time: bookingData.arrivalTime,
+        special_requests: bookingData.specialRequests
       };
 
       const response = await fetch(`${BACKEND_URL}/api/bookings`, {
@@ -123,17 +182,11 @@ function App() {
       });
 
       if (response.ok) {
-        alert('Réservation confirmée ! Vous recevrez un email de confirmation.');
+        const booking = await response.json();
+        // For now, just confirm the booking directly (payment integration pending)
+        alert('Réservation en attente de paiement ! Vous recevrez un email de confirmation une fois le paiement effectué.');
         setIsBookingOpen(false);
-        setSelectedDates({ from: null, to: null });
-        setBookingData({
-          name: '',
-          email: '',
-          phone: '',
-          guests: '',
-          arrivalTime: '',
-          specialRequests: ''
-        });
+        resetForm();
         fetchBookings();
       } else {
         const error = await response.json();
@@ -147,13 +200,28 @@ function App() {
     }
   };
 
+  const resetForm = () => {
+    setSelectedDates({ from: null, to: null });
+    setBookingData({
+      firstName: '',
+      lastName: '',
+      email: '',
+      phone: '',
+      address: '',
+      guests: '',
+      petsAllowed: false,
+      arrivalTime: '',
+      specialRequests: ''
+    });
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
       {/* Header */}
       <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex justify-between items-center">
-            <h1 className="text-2xl font-bold text-slate-900">Appartement de Luxe</h1>
+            <h1 className="text-2xl font-bold text-slate-900">Appartement Cosy</h1>
             <Badge variant="secondary" className="px-3 py-1">
               <Star className="w-4 h-4 mr-1 fill-yellow-400 text-yellow-400" />
               4.9
@@ -172,7 +240,7 @@ function App() {
                   Votre séjour parfait vous attend
                 </h2>
                 <p className="text-xl text-slate-600 leading-relaxed">
-                  Découvrez notre appartement moderne et élégant, parfaitement équipé pour un séjour inoubliable.
+                  Découvrez notre appartement cosy et authentique, parfaitement équipé pour un séjour mémorable. Animaux de compagnie acceptés !
                 </p>
               </div>
               
@@ -186,16 +254,19 @@ function App() {
                   <span>Jusqu'à 4 personnes</span>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <CalendarDays className="w-5 h-5" />
-                  <span>Séjours flexibles</span>
+                  <PawPrint className="w-5 h-5" />
+                  <span>Animaux acceptés</span>
                 </div>
               </div>
 
               <div className="bg-white/70 backdrop-blur-sm p-6 rounded-2xl shadow-lg">
                 <div className="flex items-center justify-between">
                   <div>
-                    <span className="text-3xl font-bold text-slate-900">€{pricing.base_rate || pricing.baseRate || 120}</span>
+                    <span className="text-3xl font-bold text-slate-900">€{pricingConfig.min_rate} - €{pricingConfig.max_rate}</span>
                     <span className="text-slate-600 ml-2">par nuit</span>
+                    <div className="text-sm text-slate-500 mt-1">
+                      + €{pricingConfig.cleaning_fee} frais de ménage + €{pricingConfig.security_deposit} dépôt
+                    </div>
                   </div>
                   <Dialog open={isBookingOpen} onOpenChange={setIsBookingOpen}>
                     <DialogTrigger asChild>
@@ -228,7 +299,7 @@ function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
             <h3 className="text-3xl font-bold text-slate-900 mb-4">Choisissez vos dates</h3>
-            <p className="text-slate-600">Sélectionnez votre période de séjour</p>
+            <p className="text-slate-600">Sélectionnez votre période de séjour pour voir la tarification détaillée</p>
           </div>
 
           <div className="grid lg:grid-cols-2 gap-12">
@@ -249,11 +320,11 @@ function App() {
 
             <Card className="p-6">
               <CardHeader>
-                <CardTitle>Résumé de réservation</CardTitle>
+                <CardTitle>Détail de la réservation</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 {selectedDates.from && selectedDates.to ? (
-                  <>
+                  <div className="space-y-4">
                     <div className="space-y-2 p-4 bg-slate-50 rounded-lg">
                       <div className="flex justify-between">
                         <span>Arrivée:</span>
@@ -265,13 +336,33 @@ function App() {
                       </div>
                       <div className="flex justify-between">
                         <span>Nombre de nuits:</span>
-                        <span className="font-medium">{calculateNights()}</span>
+                        <span className="font-medium">{pricingBreakdown.nights}</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 p-4 bg-blue-50 rounded-lg">
+                      <h4 className="font-semibold text-slate-900 mb-2">Détail des prix</h4>
+                      <div className="flex justify-between text-sm">
+                        <span>{pricingBreakdown.nights} nuits × €{pricingBreakdown.avgNightlyRate}</span>
+                        <span>€{pricingBreakdown.subtotal}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span>Frais de ménage</span>
+                        <span>€{pricingBreakdown.cleaningFee}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span>Dépôt de garantie</span>
+                        <span>€{pricingBreakdown.securityDeposit}</span>
                       </div>
                       <div className="border-t pt-2 flex justify-between text-lg font-bold">
                         <span>Total:</span>
-                        <span>€{calculateTotal()}</span>
+                        <span>€{pricingBreakdown.totalPrice}</span>
+                      </div>
+                      <div className="text-xs text-slate-500 mt-2">
+                        * Le dépôt de garantie sera remboursé après votre séjour
                       </div>
                     </div>
+
                     <Button 
                       onClick={() => setIsBookingOpen(true)} 
                       className="w-full bg-slate-900 hover:bg-slate-800"
@@ -279,10 +370,10 @@ function App() {
                     >
                       Procéder à la réservation
                     </Button>
-                  </>
+                  </div>
                 ) : (
                   <p className="text-slate-600 text-center py-8">
-                    Sélectionnez vos dates pour voir le tarif
+                    Sélectionnez vos dates pour voir le tarif détaillé
                   </p>
                 )}
               </CardContent>
@@ -297,7 +388,7 @@ function App() {
           <div className="text-center mb-12">
             <h3 className="text-3xl font-bold text-slate-900 mb-4">Équipements inclus</h3>
           </div>
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-6">
             {amenities.map((amenity, index) => (
               <Card key={index} className="p-6 text-center hover:shadow-lg transition-shadow">
                 <CardContent className="pt-6">
@@ -312,7 +403,7 @@ function App() {
 
       {/* Booking Dialog */}
       <Dialog open={isBookingOpen} onOpenChange={setIsBookingOpen}>
-        <DialogContent className="max-w-md mx-auto">
+        <DialogContent className="max-w-lg mx-auto max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Finaliser votre réservation</DialogTitle>
             <DialogDescription>
@@ -321,14 +412,26 @@ function App() {
           </DialogHeader>
           
           <form onSubmit={handleBookingSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Nom complet *</Label>
-              <Input
-                id="name"
-                value={bookingData.name}
-                onChange={(e) => setBookingData(prev => ({ ...prev, name: e.target.value }))}
-                required
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="firstName">Prénom *</Label>
+                <Input
+                  id="firstName"
+                  value={bookingData.firstName}
+                  onChange={(e) => setBookingData(prev => ({ ...prev, firstName: e.target.value }))}
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="lastName">Nom *</Label>
+                <Input
+                  id="lastName"
+                  value={bookingData.lastName}
+                  onChange={(e) => setBookingData(prev => ({ ...prev, lastName: e.target.value }))}
+                  required
+                />
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -353,39 +456,66 @@ function App() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="guests">Nombre de personnes *</Label>
-              <Select value={bookingData.guests} onValueChange={(value) => setBookingData(prev => ({ ...prev, guests: value }))}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Sélectionnez" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="1">1 personne</SelectItem>
-                  <SelectItem value="2">2 personnes</SelectItem>
-                  <SelectItem value="3">3 personnes</SelectItem>
-                  <SelectItem value="4">4 personnes</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label htmlFor="address">Adresse complète *</Label>
+              <Textarea
+                id="address"
+                placeholder="Adresse, ville, code postal, pays"
+                value={bookingData.address}
+                onChange={(e) => setBookingData(prev => ({ ...prev, address: e.target.value }))}
+                required
+              />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="arrivalTime">Heure d'arrivée *</Label>
-              <Select value={bookingData.arrivalTime} onValueChange={(value) => setBookingData(prev => ({ ...prev, arrivalTime: value }))}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Choisir un créneau" />
-                </SelectTrigger>
-                <SelectContent>
-                  {arrivalTimeSlots.map((slot) => (
-                    <SelectItem key={slot} value={slot}>{slot}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="guests">Nombre de personnes *</Label>
+                <Select value={bookingData.guests} onValueChange={(value) => setBookingData(prev => ({ ...prev, guests: value }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Sélectionnez" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">1 personne</SelectItem>
+                    <SelectItem value="2">2 personnes</SelectItem>
+                    <SelectItem value="3">3 personnes</SelectItem>
+                    <SelectItem value="4">4 personnes</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="arrivalTime">Heure d'arrivée *</Label>
+                <Select value={bookingData.arrivalTime} onValueChange={(value) => setBookingData(prev => ({ ...prev, arrivalTime: value }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Choisir un créneau" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {arrivalTimeSlots.map((slot) => (
+                      <SelectItem key={slot} value={slot}>{slot}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <Checkbox 
+                id="pets" 
+                checked={bookingData.petsAllowed}
+                onCheckedChange={(checked) => setBookingData(prev => ({ ...prev, petsAllowed: checked }))} 
+              />
+              <Label 
+                htmlFor="pets" 
+                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+              >
+                Je voyage avec un animal de compagnie
+              </Label>
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="requests">Demandes spéciales</Label>
               <Textarea
                 id="requests"
-                placeholder="Allergies, préférences, etc."
+                placeholder="Besoins particuliers, allergies, préférences..."
                 value={bookingData.specialRequests}
                 onChange={(e) => setBookingData(prev => ({ ...prev, specialRequests: e.target.value }))}
               />
@@ -393,17 +523,29 @@ function App() {
 
             {selectedDates.from && selectedDates.to && (
               <div className="bg-slate-50 p-4 rounded-lg space-y-2">
-                <div className="flex justify-between">
+                <h4 className="font-semibold">Récapitulatif de votre réservation</h4>
+                <div className="flex justify-between text-sm">
                   <span>Dates:</span>
                   <span>{selectedDates.from.toLocaleDateString('fr-FR')} - {selectedDates.to.toLocaleDateString('fr-FR')}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span>Nuits:</span>
-                  <span>{calculateNights()}</span>
+                <div className="flex justify-between text-sm">
+                  <span>{pricingBreakdown.nights} nuits × €{pricingBreakdown.avgNightlyRate}:</span>
+                  <span>€{pricingBreakdown.subtotal}</span>
                 </div>
-                <div className="flex justify-between font-bold text-lg">
-                  <span>Total:</span>
-                  <span>€{calculateTotal()}</span>
+                <div className="flex justify-between text-sm">
+                  <span>Frais de ménage:</span>
+                  <span>€{pricingBreakdown.cleaningFee}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span>Dépôt de garantie:</span>
+                  <span>€{pricingBreakdown.securityDeposit}</span>
+                </div>
+                <div className="flex justify-between font-bold text-lg border-t pt-2">
+                  <span>Total à payer:</span>
+                  <span>€{pricingBreakdown.totalPrice}</span>
+                </div>
+                <div className="text-xs text-slate-500">
+                  * Le dépôt de garantie sera remboursé après inspection du logement
                 </div>
               </div>
             )}
@@ -414,7 +556,7 @@ function App() {
               size="lg"
               disabled={isSubmitting}
             >
-              {isSubmitting ? 'Traitement...' : 'Confirmer la réservation'}
+              {isSubmitting ? 'Traitement...' : 'Réserver et payer'}
             </Button>
           </form>
         </DialogContent>
@@ -424,8 +566,8 @@ function App() {
       <footer className="bg-slate-900 text-white py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center">
-            <h3 className="text-2xl font-bold mb-4">Appartement de Luxe</h3>
-            <p className="text-slate-300 mb-4">Votre séjour parfait vous attend</p>
+            <h3 className="text-2xl font-bold mb-4">Appartement Cosy</h3>
+            <p className="text-slate-300 mb-4">Votre séjour authentique vous attend • Animaux acceptés</p>
             <div className="flex items-center justify-center space-x-2">
               <Clock className="w-4 h-4" />
               <span className="text-sm">Check-in: 14h00 - Check-out: 11h00</span>
