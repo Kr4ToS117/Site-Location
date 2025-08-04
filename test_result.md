@@ -101,3 +101,110 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: "Develop a personal apartment booking website with dynamic pricing (€140-€280), extended booking form (name, surname, address, pets), cleaning fee (€45), security deposit (€600), and Stripe payment integration."
+
+backend:
+  - task: "Extend booking model with new fields"
+    implemented: false
+    working: "NA"
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "Need to add first_name, last_name, address, pets_allowed fields to BookingCreate model"
+
+  - task: "Implement dynamic pricing by dates"
+    implemented: false
+    working: "NA"
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "Need to create pricing system with date-based rates (€140-€280)"
+
+  - task: "Add fixed fees calculation"
+    implemented: false
+    working: "NA"
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "Need to add cleaning fee (€45) and security deposit (€600) to pricing"
+
+  - task: "Prepare Stripe integration endpoints"
+    implemented: false
+    working: "NA"
+    file: "server.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "Create payment processing endpoints with placeholder for Stripe keys"
+
+frontend:
+  - task: "Extend booking form with new fields"
+    implemented: false
+    working: "NA" 
+    file: "App.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "Add first_name, last_name, address, pets fields to booking form"
+
+  - task: "Update pricing display with fees"
+    implemented: false
+    working: "NA"
+    file: "App.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "Show breakdown: nightly rate × nights + cleaning (€45) + deposit (€600)"
+
+  - task: "Add Stripe payment component"
+    implemented: false
+    working: "NA"
+    file: "App.js"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "Create payment form component ready for Stripe integration"
+
+metadata:
+  created_by: "main_agent"
+  version: "1.0"
+  test_sequence: 0
+  run_ui: false
+
+test_plan:
+  current_focus:
+    - "Extend booking model with new fields"
+    - "Implement dynamic pricing by dates"
+    - "Add fixed fees calculation"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+    - agent: "main"
+      message: "Starting implementation of extended booking system with dynamic pricing, new form fields, and fee structure. Will implement backend changes first, then frontend updates."
