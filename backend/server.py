@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, validator
-from typing import Optional, List
+from typing import Optional, List, Dict
 from datetime import datetime, date
 import pymongo
 import os
@@ -10,6 +10,8 @@ from bson import ObjectId
 
 # Environment variables
 MONGO_URL = os.environ.get('MONGO_URL', 'mongodb://localhost:27017/apartment_booking')
+STRIPE_SECRET_KEY = os.environ.get('STRIPE_SECRET_KEY', 'placeholder_stripe_secret_key')
+STRIPE_PUBLISHABLE_KEY = os.environ.get('STRIPE_PUBLISHABLE_KEY', 'placeholder_stripe_publishable_key')
 
 # MongoDB connection
 client = pymongo.MongoClient(MONGO_URL)
@@ -28,13 +30,20 @@ app.add_middleware(
 
 # Pydantic models
 class BookingCreate(BaseModel):
-    name: str
+    first_name: str
+    last_name: str
     email: EmailStr
     phone: str
+    address: str
     guests: int
+    pets_allowed: bool
     check_in: date
     check_out: date
     nights: int
+    nightly_rate: float
+    subtotal: float
+    cleaning_fee: float
+    security_deposit: float
     total_price: float
     arrival_time: str
     special_requests: Optional[str] = ""
@@ -53,13 +62,20 @@ class BookingCreate(BaseModel):
 
 class BookingResponse(BaseModel):
     booking_id: str
-    name: str
+    first_name: str
+    last_name: str
     email: str
     phone: str
+    address: str
     guests: int
+    pets_allowed: bool
     check_in: date
     check_out: date
     nights: int
+    nightly_rate: float
+    subtotal: float
+    cleaning_fee: float
+    security_deposit: float
     total_price: float
     arrival_time: str
     special_requests: str
@@ -67,18 +83,36 @@ class BookingResponse(BaseModel):
     created_at: datetime
 
 class PricingResponse(BaseModel):
-    base_rate: float
-    cleaning_fee: Optional[float] = 0
-    security_deposit: Optional[float] = 0
+    date: str
+    rate: float
+    available: bool
 
-class PricingUpdate(BaseModel):
-    base_rate: float
-    cleaning_fee: Optional[float] = 0
-    security_deposit: Optional[float] = 0
+class DynamicPricing(BaseModel):
+    date: str
+    rate: float
+
+class PricingConfiguration(BaseModel):
+    cleaning_fee: float
+    security_deposit: float
+    default_rate: float
+    min_rate: float
+    max_rate: float
+
+class PaymentIntent(BaseModel):
+    amount: int
+    currency: str = "eur"
+    booking_id: str
+
+# Constants
+CLEANING_FEE = 45.0
+SECURITY_DEPOSIT = 600.0
+DEFAULT_RATE = 140.0
+MIN_RATE = 140.0
+MAX_RATE = 280.0
 
 # Helper functions
 def booking_dict_to_response(booking: dict) -> BookingResponse:
-    # Convert string dates back to date objects for response
+    """Convert booking document to response model"""
     check_in = booking['check_in']
     check_out = booking['check_out']
     
@@ -89,13 +123,20 @@ def booking_dict_to_response(booking: dict) -> BookingResponse:
     
     return BookingResponse(
         booking_id=booking['booking_id'],
-        name=booking['name'],
+        first_name=booking['first_name'],
+        last_name=booking['last_name'],
         email=booking['email'],
         phone=booking['phone'],
+        address=booking['address'],
         guests=booking['guests'],
+        pets_allowed=booking['pets_allowed'],
         check_in=check_in,
         check_out=check_out,
         nights=booking['nights'],
+        nightly_rate=booking['nightly_rate'],
+        subtotal=booking['subtotal'],
+        cleaning_fee=booking['cleaning_fee'],
+        security_deposit=booking['security_deposit'],
         total_price=booking['total_price'],
         arrival_time=booking['arrival_time'],
         special_requests=booking['special_requests'],
@@ -103,9 +144,19 @@ def booking_dict_to_response(booking: dict) -> BookingResponse:
         created_at=booking['created_at']
     )
 
+def get_rate_for_date(target_date: date) -> float:
+    """Get rate for specific date from database or return default"""
+    try:
+        date_str = target_date.isoformat()
+        pricing = db.dynamic_pricing.find_one({'date': date_str})
+        if pricing:
+            return pricing['rate']
+        return DEFAULT_RATE
+    except Exception:
+        return DEFAULT_RATE
+
 def check_date_availability(check_in: date, check_out: date) -> bool:
     """Check if dates are available for booking"""
-    # Convert dates to strings for MongoDB query
     check_in_str = check_in.isoformat()
     check_out_str = check_out.isoformat()
     
@@ -120,6 +171,20 @@ def check_date_availability(check_in: date, check_out: date) -> bool:
     })
     
     return list(existing_bookings) == []
+
+def calculate_average_nightly_rate(check_in: date, check_out: date) -> float:
+    """Calculate average nightly rate for date range"""
+    total_rate = 0
+    current_date = check_in
+    nights = 0
+    
+    while current_date < check_out:
+        rate = get_rate_for_date(current_date)
+        total_rate += rate
+        nights += 1
+        current_date = date.fromordinal(current_date.toordinal() + 1)
+    
+    return total_rate / nights if nights > 0 else DEFAULT_RATE
 
 # API Routes
 @app.get("/")
@@ -152,17 +217,24 @@ async def create_booking(booking: BookingCreate):
         # Create booking document
         booking_doc = {
             'booking_id': booking_id,
-            'name': booking.name,
+            'first_name': booking.first_name,
+            'last_name': booking.last_name,
             'email': booking.email,
             'phone': booking.phone,
+            'address': booking.address,
             'guests': booking.guests,
+            'pets_allowed': booking.pets_allowed,
             'check_in': booking.check_in.isoformat(),
             'check_out': booking.check_out.isoformat(),
             'nights': booking.nights,
+            'nightly_rate': booking.nightly_rate,
+            'subtotal': booking.subtotal,
+            'cleaning_fee': booking.cleaning_fee,
+            'security_deposit': booking.security_deposit,
             'total_price': booking.total_price,
             'arrival_time': booking.arrival_time,
             'special_requests': booking.special_requests,
-            'status': 'confirmed',
+            'status': 'pending_payment',
             'created_at': datetime.utcnow()
         }
         
@@ -211,54 +283,83 @@ async def cancel_booking(booking_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error cancelling booking: {str(e)}")
 
-@app.get("/api/pricing", response_model=PricingResponse)
-async def get_pricing():
-    """Get current pricing configuration"""
+@app.get("/api/pricing/dates/{check_in}/{check_out}")
+async def get_pricing_for_dates(check_in: str, check_out: str):
+    """Get pricing information for date range"""
     try:
-        pricing = db.pricing.find_one({'active': True})
-        if not pricing:
-            # Set default pricing if none exists
-            default_pricing = {
-                'base_rate': 120.0,
-                'cleaning_fee': 0.0,
-                'security_deposit': 0.0,
-                'active': True,
-                'created_at': datetime.utcnow()
-            }
-            db.pricing.insert_one(default_pricing)
-            pricing = default_pricing
+        check_in_date = datetime.strptime(check_in, '%Y-%m-%d').date()
+        check_out_date = datetime.strptime(check_out, '%Y-%m-%d').date()
         
-        return PricingResponse(
-            base_rate=pricing['base_rate'],
-            cleaning_fee=pricing.get('cleaning_fee', 0.0),
-            security_deposit=pricing.get('security_deposit', 0.0)
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching pricing: {str(e)}")
-
-@app.put("/api/pricing")
-async def update_pricing(pricing: PricingUpdate):
-    """Update pricing configuration"""
-    try:
-        # Deactivate current pricing
-        db.pricing.update_many({'active': True}, {'$set': {'active': False}})
+        if check_in_date >= check_out_date:
+            raise HTTPException(status_code=400, detail="Check-out date must be after check-in date")
         
-        # Insert new pricing
-        new_pricing = {
-            'base_rate': pricing.base_rate,
-            'cleaning_fee': pricing.cleaning_fee,
-            'security_deposit': pricing.security_deposit,
-            'active': True,
-            'created_at': datetime.utcnow()
+        # Calculate nights
+        nights = (check_out_date - check_in_date).days
+        
+        # Get average nightly rate
+        avg_nightly_rate = calculate_average_nightly_rate(check_in_date, check_out_date)
+        
+        # Calculate pricing breakdown
+        subtotal = nights * avg_nightly_rate
+        cleaning_fee = CLEANING_FEE
+        security_deposit = SECURITY_DEPOSIT
+        total = subtotal + cleaning_fee + security_deposit
+        
+        return {
+            "check_in": check_in_date,
+            "check_out": check_out_date,
+            "nights": nights,
+            "avg_nightly_rate": round(avg_nightly_rate, 2),
+            "subtotal": round(subtotal, 2),
+            "cleaning_fee": cleaning_fee,
+            "security_deposit": security_deposit,
+            "total_price": round(total, 2),
+            "available": check_date_availability(check_in_date, check_out_date)
         }
-        
-        result = db.pricing.insert_one(new_pricing)
-        
-        if result.inserted_id:
-            return {"message": "Pricing updated successfully"}
-        else:
-            raise HTTPException(status_code=500, detail="Failed to update pricing")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error calculating pricing: {str(e)}")
+
+@app.get("/api/pricing/configuration")
+async def get_pricing_configuration():
+    """Get pricing configuration"""
+    return {
+        "cleaning_fee": CLEANING_FEE,
+        "security_deposit": SECURITY_DEPOSIT,
+        "default_rate": DEFAULT_RATE,
+        "min_rate": MIN_RATE,
+        "max_rate": MAX_RATE
+    }
+
+@app.post("/api/pricing/dates")
+async def set_pricing_for_dates(pricing_data: List[DynamicPricing]):
+    """Set custom pricing for specific dates"""
+    try:
+        for pricing in pricing_data:
+            # Validate rate within bounds
+            if pricing.rate < MIN_RATE or pricing.rate > MAX_RATE:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Rate must be between €{MIN_RATE} and €{MAX_RATE}"
+                )
             
+            # Upsert pricing for date
+            db.dynamic_pricing.update_one(
+                {'date': pricing.date},
+                {
+                    '$set': {
+                        'date': pricing.date,
+                        'rate': pricing.rate,
+                        'updated_at': datetime.utcnow()
+                    }
+                },
+                upsert=True
+            )
+        
+        return {"message": f"Pricing updated for {len(pricing_data)} dates"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error updating pricing: {str(e)}")
 
@@ -283,6 +384,42 @@ async def check_availability(check_in: str, check_out: str):
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error checking availability: {str(e)}")
+
+# Stripe Payment Routes (Placeholder - will be implemented when keys are provided)
+@app.post("/api/create-payment-intent")
+async def create_payment_intent(payment: PaymentIntent):
+    """Create Stripe payment intent (placeholder)"""
+    if STRIPE_SECRET_KEY == 'placeholder_stripe_secret_key':
+        return {
+            "client_secret": "placeholder_client_secret",
+            "message": "Stripe keys not configured. Please add STRIPE_SECRET_KEY to environment variables."
+        }
+    
+    # TODO: Implement actual Stripe integration when keys are provided
+    return {
+        "client_secret": "placeholder_client_secret",
+        "amount": payment.amount,
+        "currency": payment.currency,
+        "booking_id": payment.booking_id
+    }
+
+@app.post("/api/confirm-payment/{booking_id}")
+async def confirm_payment(booking_id: str):
+    """Confirm payment for booking"""
+    try:
+        result = db.bookings.update_one(
+            {'booking_id': booking_id},
+            {'$set': {'status': 'confirmed', 'confirmed_at': datetime.utcnow()}}
+        )
+        
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Booking not found")
+        
+        return {"message": "Payment confirmed, booking is now confirmed"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error confirming payment: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
