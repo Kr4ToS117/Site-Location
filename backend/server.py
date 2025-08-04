@@ -1,75 +1,276 @@
-from fastapi import FastAPI, APIRouter
-from dotenv import load_dotenv
-from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, EmailStr, validator
+from typing import Optional, List
+from datetime import datetime, date
+import pymongo
 import os
-import logging
-from pathlib import Path
-from pydantic import BaseModel, Field
-from typing import List
 import uuid
-from datetime import datetime
+from bson import ObjectId
 
-
-ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+# Environment variables
+MONGO_URL = os.environ.get('MONGO_URL', 'mongodb://localhost:27017/apartment_booking')
 
 # MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+client = pymongo.MongoClient(MONGO_URL)
+db = client.apartment_booking
 
-# Create the main app without a prefix
-app = FastAPI()
+app = FastAPI(title="Apartment Booking API", version="1.0.0")
 
-# Create a router with the /api prefix
-api_router = APIRouter(prefix="/api")
-
-
-# Define Models
-class StatusCheck(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
-
-class StatusCheckCreate(BaseModel):
-    client_name: str
-
-# Add your routes to the router instead of directly to app
-@api_router.get("/")
-async def root():
-    return {"message": "Hello World"}
-
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.dict()
-    status_obj = StatusCheck(**status_dict)
-    _ = await db.status_checks.insert_one(status_obj.dict())
-    return status_obj
-
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    status_checks = await db.status_checks.find().to_list(1000)
-    return [StatusCheck(**status_check) for status_check in status_checks]
-
-# Include the router in the main app
-app.include_router(api_router)
-
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# Pydantic models
+class BookingCreate(BaseModel):
+    name: str
+    email: EmailStr
+    phone: str
+    guests: int
+    check_in: date
+    check_out: date
+    nights: int
+    total_price: float
+    arrival_time: str
+    special_requests: Optional[str] = ""
 
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()
+    @validator('guests')
+    def validate_guests(cls, v):
+        if v < 1 or v > 4:
+            raise ValueError('Number of guests must be between 1 and 4')
+        return v
+
+    @validator('check_out')
+    def validate_dates(cls, v, values):
+        if 'check_in' in values and v <= values['check_in']:
+            raise ValueError('Check-out date must be after check-in date')
+        return v
+
+class BookingResponse(BaseModel):
+    booking_id: str
+    name: str
+    email: str
+    phone: str
+    guests: int
+    check_in: date
+    check_out: date
+    nights: int
+    total_price: float
+    arrival_time: str
+    special_requests: str
+    status: str
+    created_at: datetime
+
+class PricingResponse(BaseModel):
+    base_rate: float
+    cleaning_fee: Optional[float] = 0
+    security_deposit: Optional[float] = 0
+
+class PricingUpdate(BaseModel):
+    base_rate: float
+    cleaning_fee: Optional[float] = 0
+    security_deposit: Optional[float] = 0
+
+# Helper functions
+def booking_dict_to_response(booking: dict) -> BookingResponse:
+    return BookingResponse(
+        booking_id=booking['booking_id'],
+        name=booking['name'],
+        email=booking['email'],
+        phone=booking['phone'],
+        guests=booking['guests'],
+        check_in=booking['check_in'],
+        check_out=booking['check_out'],
+        nights=booking['nights'],
+        total_price=booking['total_price'],
+        arrival_time=booking['arrival_time'],
+        special_requests=booking['special_requests'],
+        status=booking['status'],
+        created_at=booking['created_at']
+    )
+
+def check_date_availability(check_in: date, check_out: date) -> bool:
+    """Check if dates are available for booking"""
+    existing_bookings = db.bookings.find({
+        'status': {'$ne': 'cancelled'},
+        '$or': [
+            {
+                'check_in': {'$lt': check_out},
+                'check_out': {'$gt': check_in}
+            }
+        ]
+    })
+    
+    return list(existing_bookings) == []
+
+# API Routes
+@app.get("/")
+async def root():
+    return {"message": "Apartment Booking API is running"}
+
+@app.get("/api/bookings", response_model=List[BookingResponse])
+async def get_bookings():
+    """Get all bookings"""
+    try:
+        bookings = list(db.bookings.find({'status': {'$ne': 'cancelled'}}).sort('created_at', -1))
+        return [booking_dict_to_response(booking) for booking in bookings]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching bookings: {str(e)}")
+
+@app.post("/api/bookings", response_model=BookingResponse)
+async def create_booking(booking: BookingCreate):
+    """Create a new booking"""
+    try:
+        # Check date availability
+        if not check_date_availability(booking.check_in, booking.check_out):
+            raise HTTPException(
+                status_code=400, 
+                detail="Les dates sélectionnées ne sont pas disponibles"
+            )
+        
+        # Generate unique booking ID
+        booking_id = str(uuid.uuid4())
+        
+        # Create booking document
+        booking_doc = {
+            'booking_id': booking_id,
+            'name': booking.name,
+            'email': booking.email,
+            'phone': booking.phone,
+            'guests': booking.guests,
+            'check_in': booking.check_in,
+            'check_out': booking.check_out,
+            'nights': booking.nights,
+            'total_price': booking.total_price,
+            'arrival_time': booking.arrival_time,
+            'special_requests': booking.special_requests,
+            'status': 'confirmed',
+            'created_at': datetime.utcnow()
+        }
+        
+        # Insert booking
+        result = db.bookings.insert_one(booking_doc)
+        
+        if result.inserted_id:
+            return booking_dict_to_response(booking_doc)
+        else:
+            raise HTTPException(status_code=500, detail="Failed to create booking")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating booking: {str(e)}")
+
+@app.get("/api/bookings/{booking_id}", response_model=BookingResponse)
+async def get_booking(booking_id: str):
+    """Get a specific booking by ID"""
+    try:
+        booking = db.bookings.find_one({'booking_id': booking_id})
+        if not booking:
+            raise HTTPException(status_code=404, detail="Booking not found")
+        
+        return booking_dict_to_response(booking)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching booking: {str(e)}")
+
+@app.put("/api/bookings/{booking_id}/cancel")
+async def cancel_booking(booking_id: str):
+    """Cancel a booking"""
+    try:
+        result = db.bookings.update_one(
+            {'booking_id': booking_id},
+            {'$set': {'status': 'cancelled', 'cancelled_at': datetime.utcnow()}}
+        )
+        
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Booking not found")
+        
+        return {"message": "Booking cancelled successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error cancelling booking: {str(e)}")
+
+@app.get("/api/pricing", response_model=PricingResponse)
+async def get_pricing():
+    """Get current pricing configuration"""
+    try:
+        pricing = db.pricing.find_one({'active': True})
+        if not pricing:
+            # Set default pricing if none exists
+            default_pricing = {
+                'base_rate': 120.0,
+                'cleaning_fee': 0.0,
+                'security_deposit': 0.0,
+                'active': True,
+                'created_at': datetime.utcnow()
+            }
+            db.pricing.insert_one(default_pricing)
+            pricing = default_pricing
+        
+        return PricingResponse(
+            base_rate=pricing['base_rate'],
+            cleaning_fee=pricing.get('cleaning_fee', 0.0),
+            security_deposit=pricing.get('security_deposit', 0.0)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching pricing: {str(e)}")
+
+@app.put("/api/pricing")
+async def update_pricing(pricing: PricingUpdate):
+    """Update pricing configuration"""
+    try:
+        # Deactivate current pricing
+        db.pricing.update_many({'active': True}, {'$set': {'active': False}})
+        
+        # Insert new pricing
+        new_pricing = {
+            'base_rate': pricing.base_rate,
+            'cleaning_fee': pricing.cleaning_fee,
+            'security_deposit': pricing.security_deposit,
+            'active': True,
+            'created_at': datetime.utcnow()
+        }
+        
+        result = db.pricing.insert_one(new_pricing)
+        
+        if result.inserted_id:
+            return {"message": "Pricing updated successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to update pricing")
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating pricing: {str(e)}")
+
+@app.get("/api/availability/{check_in}/{check_out}")
+async def check_availability(check_in: str, check_out: str):
+    """Check if dates are available"""
+    try:
+        check_in_date = datetime.strptime(check_in, '%Y-%m-%d').date()
+        check_out_date = datetime.strptime(check_out, '%Y-%m-%d').date()
+        
+        if check_in_date >= check_out_date:
+            raise HTTPException(status_code=400, detail="Check-out date must be after check-in date")
+        
+        is_available = check_date_availability(check_in_date, check_out_date)
+        
+        return {
+            "available": is_available,
+            "check_in": check_in_date,
+            "check_out": check_out_date
+        }
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error checking availability: {str(e)}")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8001)
