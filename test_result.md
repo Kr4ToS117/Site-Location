@@ -107,51 +107,63 @@ user_problem_statement: "Develop a personal apartment booking website with dynam
 backend:
   - task: "Extend booking model with new fields"
     implemented: true
-    working: "NA"
+    working: true
     file: "server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
         - working: "NA"
           agent: "main"
           comment: "Added first_name, last_name, address, pets_allowed fields to BookingCreate and BookingResponse models"
+        - working: true
+          agent: "testing"
+          comment: "✅ PASSED - Extended booking model fully functional. Successfully created bookings with all new fields (first_name, last_name, address, pets_allowed). Both pets_allowed=true and pets_allowed=false scenarios tested. All fields properly stored and retrieved. Status correctly set to 'pending_payment'. Input validation working for all new fields."
 
   - task: "Implement dynamic pricing by dates"
     implemented: true
-    working: "NA"
+    working: true
     file: "server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
         - working: "NA"
           agent: "main"
           comment: "Implemented dynamic pricing system with date-based rates (€140-€280), new endpoints for pricing configuration and date-specific pricing"
+        - working: true
+          agent: "testing"
+          comment: "✅ PASSED - Dynamic pricing system fully operational. GET /api/pricing/configuration returns correct values (cleaning €45, deposit €600, rates €140-€280). GET /api/pricing/dates/{check_in}/{check_out} calculates pricing accurately with detailed breakdown. POST /api/pricing/dates successfully sets custom rates. Dynamic pricing verification confirmed - set €200 rate and retrieved correctly."
 
   - task: "Add fixed fees calculation"
     implemented: true
-    working: "NA"
+    working: true
     file: "server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
         - working: "NA"
           agent: "main"
           comment: "Added cleaning fee (€45) and security deposit (€600) constants and calculation logic in pricing endpoints"
+        - working: true
+          agent: "testing"
+          comment: "✅ PASSED - Fixed fees calculation working perfectly. Cleaning fee (€45) and security deposit (€600) properly integrated in all pricing calculations. Total calculation verified: (nights × avg_rate) + cleaning_fee + security_deposit. All booking responses include correct fee breakdown."
 
   - task: "Prepare Stripe integration endpoints"
     implemented: true
-    working: "NA"
+    working: true
     file: "server.py"
     stuck_count: 0
     priority: "medium"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
         - working: "NA"
           agent: "main"
           comment: "Created placeholder payment endpoints: /api/create-payment-intent and /api/confirm-payment with environment variable support for Stripe keys"
+        - working: true
+          agent: "testing"
+          comment: "✅ PASSED - Stripe integration endpoints ready. Placeholder endpoints properly configured with environment variable detection. Bookings correctly created with 'pending_payment' status awaiting Stripe keys configuration."
 
 frontend:
   - task: "Extend booking form with new fields"
