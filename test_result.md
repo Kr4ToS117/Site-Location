@@ -155,28 +155,28 @@ backend:
 
 frontend:
   - task: "Extend booking form with new fields"
-    implemented: false
+    implemented: true
     working: "NA" 
     file: "App.js"
     stuck_count: 0
     priority: "high"
-    needs_retesting: false
+    needs_retesting: true
     status_history:
         - working: "NA"
           agent: "main"
-          comment: "Add first_name, last_name, address, pets fields to booking form"
+          comment: "Added first_name, last_name, address, pets checkbox fields to booking form with proper validation"
 
   - task: "Update pricing display with fees"
-    implemented: false
+    implemented: true
     working: "NA"
     file: "App.js"
     stuck_count: 0
     priority: "high"
-    needs_retesting: false
+    needs_retesting: true
     status_history:
         - working: "NA"
           agent: "main"
-          comment: "Show breakdown: nightly rate × nights + cleaning (€45) + deposit (€600)"
+          comment: "Implemented detailed pricing breakdown showing: nightly rate × nights + cleaning (€45) + deposit (€600) with dynamic API calls"
 
   - task: "Add Stripe payment component"
     implemented: false
@@ -188,7 +188,7 @@ frontend:
     status_history:
         - working: "NA"
           agent: "main"
-          comment: "Create payment form component ready for Stripe integration"
+          comment: "Payment form ready but actual Stripe integration pending API keys"
 
 metadata:
   created_by: "main_agent"
