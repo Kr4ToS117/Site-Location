@@ -78,14 +78,23 @@ class PricingUpdate(BaseModel):
 
 # Helper functions
 def booking_dict_to_response(booking: dict) -> BookingResponse:
+    # Convert string dates back to date objects for response
+    check_in = booking['check_in']
+    check_out = booking['check_out']
+    
+    if isinstance(check_in, str):
+        check_in = datetime.fromisoformat(check_in).date()
+    if isinstance(check_out, str):
+        check_out = datetime.fromisoformat(check_out).date()
+    
     return BookingResponse(
         booking_id=booking['booking_id'],
         name=booking['name'],
         email=booking['email'],
         phone=booking['phone'],
         guests=booking['guests'],
-        check_in=booking['check_in'],
-        check_out=booking['check_out'],
+        check_in=check_in,
+        check_out=check_out,
         nights=booking['nights'],
         total_price=booking['total_price'],
         arrival_time=booking['arrival_time'],
