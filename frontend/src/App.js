@@ -23,7 +23,7 @@ function App() {
     arrivalTime: '',
     specialRequests: ''
   });
-  const [pricing, setPricing] = useState({ baseRate: 120 });
+  const [pricing, setPricing] = useState({ base_rate: 120, baseRate: 120 });
   const [isBookingOpen, setIsBookingOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [bookings, setBookings] = useState([]);
