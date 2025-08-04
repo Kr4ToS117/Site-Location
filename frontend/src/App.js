@@ -194,7 +194,7 @@ function App() {
               <div className="bg-white/70 backdrop-blur-sm p-6 rounded-2xl shadow-lg">
                 <div className="flex items-center justify-between">
                   <div>
-                    <span className="text-3xl font-bold text-slate-900">€{pricing.baseRate}</span>
+                    <span className="text-3xl font-bold text-slate-900">€{pricing.base_rate || pricing.baseRate || 120}</span>
                     <span className="text-slate-600 ml-2">par nuit</span>
                   </div>
                   <Dialog open={isBookingOpen} onOpenChange={setIsBookingOpen}>
