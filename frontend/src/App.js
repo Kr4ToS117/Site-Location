@@ -96,7 +96,8 @@ function App() {
 
   const calculateTotal = () => {
     const nights = calculateNights();
-    return nights * pricing.baseRate;
+    const baseRate = pricing.base_rate || pricing.baseRate || 120;
+    return nights * baseRate;
   };
 
   const handleBookingSubmit = async (e) => {
