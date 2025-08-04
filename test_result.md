@@ -106,52 +106,52 @@ user_problem_statement: "Develop a personal apartment booking website with dynam
 
 backend:
   - task: "Extend booking model with new fields"
-    implemented: false
+    implemented: true
     working: "NA"
     file: "server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: false
+    needs_retesting: true
     status_history:
         - working: "NA"
           agent: "main"
-          comment: "Need to add first_name, last_name, address, pets_allowed fields to BookingCreate model"
+          comment: "Added first_name, last_name, address, pets_allowed fields to BookingCreate and BookingResponse models"
 
   - task: "Implement dynamic pricing by dates"
-    implemented: false
+    implemented: true
     working: "NA"
     file: "server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: false
+    needs_retesting: true
     status_history:
         - working: "NA"
           agent: "main"
-          comment: "Need to create pricing system with date-based rates (€140-€280)"
+          comment: "Implemented dynamic pricing system with date-based rates (€140-€280), new endpoints for pricing configuration and date-specific pricing"
 
   - task: "Add fixed fees calculation"
-    implemented: false
+    implemented: true
     working: "NA"
     file: "server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: false
+    needs_retesting: true
     status_history:
         - working: "NA"
           agent: "main"
-          comment: "Need to add cleaning fee (€45) and security deposit (€600) to pricing"
+          comment: "Added cleaning fee (€45) and security deposit (€600) constants and calculation logic in pricing endpoints"
 
   - task: "Prepare Stripe integration endpoints"
-    implemented: false
+    implemented: true
     working: "NA"
     file: "server.py"
     stuck_count: 0
     priority: "medium"
-    needs_retesting: false
+    needs_retesting: true
     status_history:
         - working: "NA"
           agent: "main"
-          comment: "Create payment processing endpoints with placeholder for Stripe keys"
+          comment: "Created placeholder payment endpoints: /api/create-payment-intent and /api/confirm-payment with environment variable support for Stripe keys"
 
 frontend:
   - task: "Extend booking form with new fields"
